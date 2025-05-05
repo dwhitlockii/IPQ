@@ -28,7 +28,7 @@ SentinelShield is a Python-based microservice that integrates with IPQualityScor
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/sentinelshield.git
+   git clone https://github.com/dwhitlockii/sentinelshield.git
    cd sentinelshield
    ```
 
