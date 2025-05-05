@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, create_engine
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, create_engine, exc
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from databases import Database
+import logging
 from ..config.settings import settings
 
 # Database URL
@@ -34,5 +35,10 @@ class WhitelistedIP(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 # Create tables
-engine = create_engine(settings.DATABASE_URL)
-Base.metadata.create_all(bind=engine) 
+try:
+    engine = create_engine(settings.DATABASE_URL)
+    Base.metadata.create_all(bind=engine)
+except exc.SQLAlchemyError as e:
+    logging.error(f"Database error: {e}")
+except Exception as e:
+    logging.error(f"An unexpected error occurred: {e}")

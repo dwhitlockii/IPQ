@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Response, HTTPException, Depends
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.wsgi import WSGIMiddleware
@@ -11,8 +11,9 @@ from typing import Optional
 import asyncio
 
 from .config.settings import settings
-from .config.monitoring import MetricsCollector
+from .config.monitoring import MetricsCollector, total_requests, requests_by_status, average_latency
 from .services.ipqs import ipqs_service
+import logging
 from .services.cache import cache_service
 from .models.database import database, AuditLog, WhitelistedIP
 
@@ -119,13 +120,25 @@ async def shield_middleware(request: Request, call_next):
         # Get IP reputation
         ip_data = await ipqs_service.check_ip(ip_address, user_agent)
         
+        try:
+            risk_score = ip_data.get("fraud_score", 0)
+            if not isinstance(risk_score, (int, float)):
+                logging.error(f"Invalid risk_score type received: {type(risk_score)}. Setting to 100.")
+                risk_score = 100
+        except Exception as e:
+            logging.error(f"Error validating risk_score: {e}. Setting to 100.")
+            risk_score = 100
+        total_requests.inc()
+        requests_by_status.labels(status=200).inc()
+        average_latency.set(0)
+        
         # Get device reputation if fingerprint provided
         device_data = None
         if device_fingerprint:
             device_data = await ipqs_service.check_device(device_fingerprint)
         
         # Calculate risk level
-        risk_level = ipqs_service.calculate_risk_level(ip_data, device_data)
+        risk_level = ipqs_service.calculate_risk_level(ip_data, device_data)    
         
         # Cache the results
         cached_data = {
@@ -216,13 +229,21 @@ async def check_ip(ip: str, request: Request):
     if not cached_data:
         # Get IP reputation
         user_agent = request.headers.get("user-agent", "Unknown")
-        ip_data = await ipqs_service.check_ip(ip, user_agent)
+        try:
+            ip_data = await ipqs_service.check_ip(ip, user_agent)
+        except Exception as e:
+            logging.error(f"Error calling ipqs api : {e}")
+            return {"error":"Error calling ipqs api"}
+        try:
+            risk_score = ip_data.get("fraud_score", 0)
+        except:
+            risk_score = 100
         
         # Calculate risk level
         risk_level = ipqs_service.calculate_risk_level(ip_data, None)
         
         # Cache the results
-        cached_data = {
+        cached_data = {  
             "ip_address": ip,
             "risk_score": ip_data.get("fraud_score", 0),
             "is_proxy": ip_data.get("proxy", False),
@@ -240,22 +261,23 @@ async def check_ip(ip: str, request: Request):
         await log_request(cached_data, risk_level)
     
     return cached_data 
+REQUEST_COUNT, REQUEST_LATENCY, CACHE_HITS, CACHE_MISSES, BLOCKED_IPS, WHITELISTED_IPS, RISK_SCORE = MetricsCollector.get_metrics()
 
 @app.get("/admin/metrics")
 async def admin_metrics(_: bool = Depends(verify_admin)):
     """Get detailed system metrics"""
     return {
         "requests": {
-            "total": REQUEST_COUNT._value.sum(),
+            "total": REQUEST_COUNT._value.sum() if REQUEST_COUNT._value else 0 ,
             "by_status": {
-                "200": REQUEST_COUNT.labels(status=200)._value,
-                "403": REQUEST_COUNT.labels(status=403)._value,
-                "500": REQUEST_COUNT.labels(status=500)._value
+                "200": REQUEST_COUNT.labels(status=200)._value if REQUEST_COUNT.labels(status=200)._value else 0,
+                "403": REQUEST_COUNT.labels(status=403)._value if REQUEST_COUNT.labels(status=403)._value else 0,
+                "500": REQUEST_COUNT.labels(status=500)._value if REQUEST_COUNT.labels(status=500)._value else 0
             }
         },
         "performance": {
-            "avg_latency": REQUEST_LATENCY._sum.sum() / REQUEST_LATENCY._count.sum(),
-            "cache_hit_rate": CACHE_HITS._value.sum() / (CACHE_HITS._value.sum() + CACHE_MISSES._value.sum()) if (CACHE_HITS._value.sum() + CACHE_MISSES._value.sum()) > 0 else 0
+            "avg_latency": REQUEST_LATENCY._sum.sum() / REQUEST_LATENCY._count.sum() if REQUEST_LATENCY._count.sum()>0 else 0 ,
+            "cache_hit_rate": CACHE_HITS._value.sum() / (CACHE_HITS._value.sum() + CACHE_MISSES._value.sum()) if (CACHE_HITS._value.sum() + CACHE_MISSES._value.sum()) > 0 else 0,
         },
         "security": {
             "blocked_ips": BLOCKED_IPS._value.sum(),

@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any
 import httpx
+import logging
 from ..config.settings import settings
 
 class IPQSService:
@@ -17,15 +18,21 @@ class IPQSService:
             "strictness": 1,
             "fast": "1",
             "mobile": "1"
-        }
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.base_url}/{self.api_key}/{ip_address}",
-                params=params
-            )
-            response.raise_for_status()
-            return response.json()
+        }        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/{self.api_key}/{ip_address}",
+                    params=params
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPError as e:
+            logging.error(f"HTTP error occurred: {e}")
+            return {"error": "HTTP error", "details": str(e)}
+        except Exception as e:
+            logging.error(f"An unexpected error occurred: {e}")
+            return {"error": "Unexpected error", "details": str(e)}
     
     async def check_device(self, fingerprint: str) -> Dict[str, Any]:
         """

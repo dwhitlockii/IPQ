@@ -6,8 +6,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     container_name: sentinel
-    environment:
-      - IPQS_API_KEY=${IPQS_API_KEY}
+    environment:     
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0

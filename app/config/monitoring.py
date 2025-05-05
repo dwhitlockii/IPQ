@@ -1,6 +1,7 @@
 from prometheus_client import Counter, Histogram, Gauge
 from typing import Dict
 
+
 # Request metrics
 REQUEST_COUNT = Counter(
     'sentinel_http_requests_total',
@@ -26,6 +27,18 @@ BLOCKED_IPS = Counter(
     'Number of blocked IP addresses'
 )
 
+TOTAL_REQUESTS = Counter(
+    'sentinel_total_requests',
+    'Total number of requests'
+)
+
+REQUESTS_BY_STATUS = Counter(
+    'sentinel_requests_by_status',
+    'Total requests by status',
+    ['status']
+)
+
+AVERAGE_LATENCY = Gauge('sentinel_average_latency_seconds', 'Average request latency in seconds')
 # Cache metrics
 CACHE_HITS = Counter(
     'sentinel_cache_hits_total',
@@ -51,6 +64,7 @@ WHITELISTED_IPS = Gauge(
 class MetricsCollector:
     """Centralized metrics collection"""
     
+    
     @classmethod
     def record_request(cls, method: str, endpoint: str, status: int):
         REQUEST_COUNT.labels(method=method, endpoint=endpoint, status=status).inc()
@@ -67,6 +81,18 @@ class MetricsCollector:
     def record_blocked_ip(cls):
         BLOCKED_IPS.inc()
     
+    @classmethod
+    def increment_total_requests(cls):
+        TOTAL_REQUESTS.inc()
+
+    @classmethod
+    def increment_requests_by_status(cls, status: str):
+        REQUESTS_BY_STATUS.labels(status=status).inc()
+
+    @classmethod
+    def set_average_latency(cls, latency: float):
+        AVERAGE_LATENCY.set(latency)
+
     @classmethod
     def record_cache_hit(cls):
         CACHE_HITS.inc()
